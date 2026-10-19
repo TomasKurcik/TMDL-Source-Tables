@@ -7,6 +7,13 @@ straight from its TMDL files.
 Paste TMDL, get a list of source objects. No install, no server, no build.
 One HTML file that runs entirely in your browser.
 
+Reads two kinds of sources:
+  - SQL databases      tables/views found in the SQL of the M queries
+                       (Oracle, SQL Server, Snowflake, PostgreSQL, ...)
+  - Analysis Services  model tables found in the DAX (EVALUATE) queries sent
+                       with AnalysisServices.Database (SSAS, Azure AS, and
+                       Power BI semantic models reached the same way)
+
 
 WHY
 ---
@@ -25,11 +32,14 @@ QUICK START
 2. Double-click it. It opens in your default browser.
    Note: opening the file on github.com only shows its source code. Download
    it, or use the GitHub Pages link if the repository owner enabled one.
-3. Get your TMDL:
+3. Get your TMDL (Power BI, Fabric and Analysis Services models all work):
    - Power BI Desktop > TMDL view > copy the script, or
    - in a PBIP project, open <name>.SemanticModel/definition/ and copy the
      contents of tables/*.tmdl and expressions.tmdl
-     (you can paste several files one after another into the same box).
+     (you can paste several files one after another into the same box), or
+   - for an Analysis Services model, save/export it as TMDL (for example with
+     Tabular Editor or Visual Studio, depending on version) and paste that.
+     TMSL (JSON) is not supported.
 4. Paste into the left panel. Results appear about 0.3 s after you stop
    typing. Ctrl+Enter (or Cmd+Enter) or the Extract button runs it at once.
 
@@ -42,7 +52,9 @@ Summary chips      model tables, partitions/expressions, how many contain SQL,
 
 Source objects     the right-hand panel, two views:
                    - By object:       each source table/view once, with the
-                                      model tables using it and a ref count
+                                      model tables using it, a ref count and
+                                      a SQL / DAX / M nav tag. DAX objects are
+                                      shown as SourceModel.Table
                    - By model table:  each model table with its connection and
                                       the objects it reads
                    A filter box narrows either view.
@@ -79,23 +91,36 @@ HOW IT WORKS
    concatenation, is decoded into plain SQL. Text parameters
    (expression X = "value" meta [IsParameterQuery=true, ...]) are substituted
    when the option is on; other values appear as {Name}.
-3. The SQL is tokenised (comments and string literals are ignored) and table
+3. Each decoded string is classified. If it contains EVALUATE it is treated as
+   DAX, otherwise as SQL if it looks like SELECT ... FROM.
+4. SQL is tokenised (comments and string literals are ignored) and table
    names are collected after FROM, JOIN, comma lists in FROM,
-   INSERT INTO / MERGE INTO, and USING.
-4. CTE names, table functions and the FROM inside EXTRACT / TRIM / SUBSTRING
-   are skipped.
-5. Separately, M navigation steps are read:
+   INSERT INTO / MERGE INTO, and USING. CTE names, table functions and the
+   FROM inside EXTRACT / TRIM / SUBSTRING are skipped.
+5. DAX has comments and "strings" removed, then model tables are collected from:
+   - 'Quoted Table'[Column] and 'Quoted Table'
+   - Table[Column]
+   - a table given as first argument of FILTER, ALL, VALUES, DISTINCT,
+     SELECTCOLUMNS, ADDCOLUMNS, SUMMARIZE, CALCULATETABLE, COUNTROWS, ...
+   - EVALUATE Table
+   DAX variables (VAR), measure references ([Total Sales]) and column
+   references are not reported as tables. For AnalysisServices.Database
+   (server, database, ...) the database name is used as a prefix, so the
+   result reads SalesAnalytics.Date, SalesAnalytics.Sales, ...
+6. Separately, M navigation steps are read:
    - {[Schema="..", Item=".."]}           (SQL Server style)
    - {[Name="..", Kind="Database"/"Schema"/"Table"/"View"]}  (Snowflake style)
-6. If a pasted text contains no table sources at all, the whole text is
-   scanned as M/SQL, so you can also paste a bare query.
+7. If a pasted text contains no table sources at all, the whole text is
+   scanned as M/SQL/DAX, so you can also paste a bare query.
 
 Recognised connectors (shown as the "connection" of a source):
 Oracle.Database, Sql.Database / Sql.Databases, Snowflake.Databases,
 Odbc.Query / Odbc.DataSource, OleDb.DataSource, PostgreSQL.Database,
 MySQL.Database, GoogleBigQuery.Database, Databricks.Catalogs,
 AmazonRedshift.Database, Teradata.Database, DB2.Database,
-Lakehouse.Contents, Fabric.Warehouse.
+Lakehouse.Contents, Fabric.Warehouse, AnalysisServices.Database(s).
+For Analysis Services the connection is shown as "server / database", with
+text parameters resolved.
 
 
 LIMITATIONS
@@ -108,8 +133,21 @@ LIMITATIONS
   the tool only sees the TMDL, not the database.
 - Objects used only inside a stored procedure or function called from M are
   not visible.
-- Non-SQL sources (Excel, SharePoint, web, folders, etc.) are not reported as
-  database objects.
+- Non-SQL, non-DAX sources (Excel, SharePoint, web, folders, etc.) are not
+  reported as database objects.
+- DAX detection is lexical, like the SQL detection. A table name used as a
+  bare word in an unusual position can be missed, and a name that looks like
+  a table can occasionally be over-reported. Check the highlighted DAX in the
+  "Per partition" view.
+- For Analysis Services only the tables referenced by the DAX are listed, not
+  the columns or measures, and not what the Analysis Services model itself
+  reads from.
+- AnalysisServices.Database used with cube navigation (no Query option) is not
+  resolved to tables.
+- Direct Lake / entity partitions are skipped (no external SQL or DAX).
+- SQL assembled with Text.Combine({ "line", "line", ... }, "#(lf)") from a
+  list of lines is not joined back together and shows "none found". Use a
+  single string or "&" concatenation, or open an issue if you need it.
 - Sources that only reference another query ("Source = SomeOtherQuery") show
   "none found"; the objects appear under the query they reference.
 - Dynamic SQL built from a non-text value shows as {Name} in the object name.
@@ -135,6 +173,11 @@ step. Open the file in any text editor. Everything is in the <script> block:
   stringChains /   decode M strings, #(lf)/#(tab) escapes and "&" chains
    decodeEscapes   into SQL text
   CONN_RE          list of recognised connector names; add yours here
+  aasInfo          reads server and database of AnalysisServices.Database
+  looksLikeDAX,    DAX detection (EVALUATE), comment/string stripping and
+   stripDax,       table extraction; DAX_FN lists the functions whose first
+   extractDax      argument is a table
+  highlightDAX     highlighting of detected tables in the DAX view
   navObjects       M navigation patterns (Schema/Item, Name/Kind)
   sqlTokens        SQL tokenizer (comments, quoted names, bind variables)
   STOP, SKIP_FN    keywords that end a table list; functions whose FROM is
@@ -147,6 +190,7 @@ step. Open the file in any text editor. Everything is in the <script> block:
 
 Typical tweaks
   - Add a connector:        extend the regular expression in CONN_RE
+  - Treat a DAX function's first argument as a table:  add it to DAX_FN
   - Treat another keyword as the end of a table list:  add it to STOP
   - Ignore more pseudo-tables (like DUAL):  extend the check in rec()
   - Change the Excel columns:  edit the "copyTsv" handler at the bottom
@@ -163,7 +207,8 @@ Nothing appears
   you open an issue.
 
 A source shows "none found"
-  It uses a non-SQL connector, or references another query. Open its row in
+  It uses a non-SQL/non-DAX connector, builds the SQL from a Text.Combine list,
+  or references another query. Open its row in
   "Per partition" to see what the tool read.
 
 An unexpected name appears (or one is missing)

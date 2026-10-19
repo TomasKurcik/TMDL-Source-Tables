@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMDL Source Tables</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* Layout: toolbar, summary chips, input | results side by side, per-partition detail below */
+  :root {
+    --bg: #f2f4f5; --panel: #ffffff; --panel-2: #fafbfb;
+    --ink: #16211f; --ink-2: #4d5f5c; --ink-3: #7d8f8c;
+    --line: #d8e0df; --line-strong: #b9c6c4;
+    --accent: #0d6f78; --accent-soft: #e2f0f1; --on-accent: #ffffff;
+    --amber: #9a6408; --amber-soft: #f8eeda;
+    --plum: #9b2c6e; --plum-soft: #f6e6ef;
+    --tok-kw: #0b5f68; --tok-str: #8a4a12; --tok-com: #7d8f8c;
+    --shadow: 0 1px 2px rgba(16,33,31,.06), 0 8px 24px rgba(16,33,31,.05);
+    --f-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101615; --panel: #171f1e; --panel-2: #1c2524;
+      --ink: #e6eeec; --ink-2: #a9b9b6; --ink-3: #778886;
+      --line: #293534; --line-strong: #3b4a48;
+      --accent: #4fc4cd; --accent-soft: #10312f; --on-accent: #06201f;
+      --amber: #dda54a; --amber-soft: #33270f;
+      --plum: #f08cc4; --plum-soft: #3a1a2c;
+      --tok-kw: #6fd2da; --tok-str: #e0a870; --tok-com: #6d817e;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101615; --panel: #171f1e; --panel-2: #1c2524;
+    --ink: #e6eeec; --ink-2: #a9b9b6; --ink-3: #778886;
+    --line: #293534; --line-strong: #3b4a48;
+    --accent: #4fc4cd; --accent-soft: #10312f; --on-accent: #06201f;
+    --amber: #dda54a; --amber-soft: #33270f;
+    --plum: #f08cc4; --plum-soft: #3a1a2c;
+    --tok-kw: #6fd2da; --tok-str: #e0a870; --tok-com: #6d817e;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-ui); font-size: 14px; line-height: 1.5; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 22px 40px; display: flex; flex-direction: column; gap: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; }
+  h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+  h1 .m { color: var(--accent); font-family: var(--f-mono); font-weight: 700; }
+  header p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+  code { font-family: var(--f-mono); font-size: 12.5px; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; box-shadow: var(--shadow); }
+  .bar .spacer { flex: 1 1 auto; }
+  label.opt { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12.5px; cursor: pointer; }
+  select, button, input[type="search"] { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 14px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+  .pane > .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+  .pane > .head button { padding: 3px 9px; font-size: 12px; }
+  .pane > .head input[type="search"] { padding: 3px 8px; font-size: 12px; width: 160px; max-width: 100%; }
+  .title { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+  .meta { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  textarea { flex: 1; width: 100%; resize: vertical; border: 0; background: transparent; color: var(--ink); font-family: var(--f-mono); font-size: 12.5px; line-height: 1.55; padding: 12px; white-space: pre; overflow: auto; min-height: 480px; tab-size: 4; }
+
+  .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; padding: 3px 10px; font-size: 12px; }
+  .seg button + button { border-left: 1px solid var(--line-strong); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+
+  .scroll { overflow: auto; max-height: 560px; flex: 1; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+  th { position: sticky; top: 0; background: var(--panel-2); font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); z-index: 1; }
+  td.obj { font-family: var(--f-mono); font-weight: 500; white-space: nowrap; }
+  td.obj .sch { color: var(--ink-3); font-weight: 400; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  th.n { text-align: right; }
+  tr:hover td { background: var(--panel-2); }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { font-size: 11.5px; border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; color: var(--ink-2); background: var(--panel-2); white-space: nowrap; }
+  .tag.mono { font-family: var(--f-mono); color: var(--ink); }
+  .via { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  .via.sql { background: var(--accent-soft); color: var(--accent); }
+  .via.nav { background: var(--plum-soft); color: var(--plum); }
+  .empty { padding: 28px 14px; color: var(--ink-3); text-align: center; }
+
+  .strip { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--ink-2); }
+  .chip b { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+  .chip.warn { background: var(--amber-soft); border-color: var(--amber); color: var(--ink); }
+
+  .parts { display: flex; flex-direction: column; }
+  details.part { border-bottom: 1px solid var(--line); }
+  details.part:last-child { border-bottom: 0; }
+  details.part > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 9px 12px; cursor: pointer; list-style: none; }
+  details.part > summary::-webkit-details-marker { display: none; }
+  details.part > summary::before { content: "▸"; color: var(--ink-3); font-size: 11px; width: 10px; }
+  details.part[open] > summary::before { content: "▾"; }
+  .pname { font-weight: 600; }
+  .pkind { font-size: 11px; color: var(--ink-3); font-family: var(--f-mono); }
+  .conn { font-family: var(--f-mono); font-size: 11.5px; color: var(--ink-2); }
+  .pcount { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .pbody { padding: 0 12px 12px 28px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .pbody pre { margin: 0; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; overflow: auto; max-height: 340px; font-family: var(--f-mono); font-size: 12px; line-height: 1.55; tab-size: 4; white-space: pre; }
+  .pbody .lbl { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+  .hit { background: var(--accent-soft); color: var(--ink); border-radius: 3px; outline: 1px solid var(--accent); }
+  .kw { color: var(--tok-kw); font-weight: 700; }
+  .str { color: var(--tok-str); }
+  .com { color: var(--tok-com); font-style: italic; }
+  .note { color: var(--ink-3); font-size: 12.5px; max-width: 95ch; margin: 0; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1><span class="m">TMDL</span> Source Tables</h1>
+    <p>Paste one or more <code>.tmdl</code> files. Every partition and expression source is read, the SQL inside the M string is decoded, and each table or view after <code>FROM</code>, <code>JOIN</code> or a comma list is collected. M navigation steps like <code>{[Schema=…,Item=…]}</code> are picked up too.</p>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="run">Extract</button>
+    <label class="opt"><input type="checkbox" id="optUpper" checked> Uppercase names</label>
+    <label class="opt"><input type="checkbox" id="optDual" checked> Hide DUAL</label>
+    <label class="opt"><input type="checkbox" id="optNav" checked> Include M navigation</label>
+    <label class="opt"><input type="checkbox" id="optParam" checked> Resolve text parameters</label>
+    <span class="spacer"></span>
+    <button id="copyList">Copy object list</button>
+    <button id="copyTsv">Copy as table (Excel)</button>
+    <button id="clear">Clear</button>
+  </div>
+
+  <div class="strip" id="strip"></div>
+
+  <div class="grid">
+    <section class="pane">
+      <div class="head"><span class="title">TMDL input</span><span class="meta" id="inmeta"></span></div>
+      <textarea id="in" spellcheck="false" placeholder="Paste TMDL here, e.g. the contents of tables/*.tmdl and expressions.tmdl"></textarea>
+    </section>
+    <section class="pane">
+      <div class="head">
+        <span class="title">Source objects</span>
+        <div class="seg" role="group" aria-label="Group results">
+          <button id="gObj" aria-pressed="true">By object</button>
+          <button id="gTbl" aria-pressed="false">By model table</button>
+        </div>
+        <input type="search" id="filter" placeholder="Filter…" aria-label="Filter results">
+        <span class="meta" id="outmeta"></span>
+      </div>
+      <div class="scroll" id="results"></div>
+    </section>
+  </div>
+
+  <section class="pane">
+    <div class="head"><span class="title">Per partition</span><span class="meta" id="pmeta"></span></div>
+    <div class="parts" id="parts"></div>
+  </section>
+
+  <p class="note">Detection is lexical, not a full SQL parse. CTE names, subqueries, <code>TABLE(…)</code> / <code>JSON_TABLE(…)</code> style functions and the <code>FROM</code> inside <code>EXTRACT</code> / <code>TRIM</code> / <code>SUBSTRING</code> are skipped. Dynamic SQL that concatenates a non-text parameter shows as <code>{Param}</code> in the name. Nothing leaves your browser.</p>
+</div>
+
+<script>
+(function () {
+
+  var $ = function (id) { return document.getElementById(id); };
+  var inEl = $("in");
+  var state = { group: "obj", objects: [], parts: [] };
+
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function unquoteName(s) { s = s.trim(); if (/^'.*'$/.test(s)) s = s.slice(1, -1).replace(/''/g, "'"); return s; }
+  function indentOf(line) { var n = 0; for (var i = 0; i < line.length; i++) { var c = line.charAt(i); if (c === "\t") n += 4; else if (c === " ") n += 1; else break; } return n; }
+
+  // TMDL property lines that can follow an expression or source (never part of the M code itself)
+  var PROP_LINE = /^(lineageTag\s*:|queryGroup\s*:|annotation\s+\S+\s*=|changedProperty\s*=|extendedProperty\s)/;
+
+  // ---- 1. TMDL -> list of sources -------------------------------------------
+  function parseTMDL(text) {
+    var lines = text.replace(/\r\n?/g, "\n").split("\n"), out = [], curTable = null, curPart = null, curKind = "";
+    function collectBlock(i, baseIndent, rest) {
+      var body = [], j = i + 1;
+      rest = rest.trim();
+      if (/^```/.test(rest)) {
+        while (j < lines.length && !/^\s*```\s*$/.test(lines[j])) { body.push(lines[j]); j++; }
+        return { body: body.join("\n"), next: j + 1 };
+      }
+      if (rest) body.push(rest);
+      while (j < lines.length) {
+        var l = lines[j];
+        if (l.trim() === "") { body.push(""); j++; continue; }
+        if (indentOf(l) <= baseIndent) break;
+        if (PROP_LINE.test(l.trim())) break;   // lineageTag / annotation lines belong to the object, not to the M code
+        body.push(l); j++;
+      }
+      while (body.length && body[body.length - 1].trim() === "") body.pop();
+      // strip common indent
+      var min = Infinity;
+      body.forEach(function (l) { if (l.trim()) min = Math.min(min, (l.match(/^[\t ]*/)[0]).length); });
+      if (min === Infinity) min = 0;
+      return { body: body.map(function (l) { return l.slice(Math.min(min, (l.match(/^[\t ]*/)[0]).length)); }).join("\n"), next: j };
+    }
+    var i = 0;
+    while (i < lines.length) {
+      var line = lines[i], m, ind = indentOf(line);
+      // tables may be nested under "model Model" (TMDL view export), so any indent is accepted
+      if ((m = line.match(/^\s*table\s+(.+?)\s*$/))) { curTable = unquoteName(m[1]); curPart = null; i++; continue; }
+      if ((m = line.match(/^\s*expression\s+('(?:[^']|'')*'|[^=\s]+)\s*=\s*(.*)$/))) {
+        var b = collectBlock(i, ind, m[2]);
+        out.push({ table: unquoteName(m[1]), partition: null, kind: "expression", body: b.body });
+        curTable = null; curPart = null; i = b.next; continue;
+      }
+      if ((m = line.match(/^\s*partition\s+('(?:[^']|'')*'|[^=\s]+)\s*=\s*(\w+)/))) { curPart = unquoteName(m[1]); curKind = m[2].toLowerCase(); i++; continue; }
+      if ((m = line.match(/^\s*source\s*=\s*(.*)$/)) && curTable) {
+        var b2 = collectBlock(i, ind, m[1]);
+        out.push({ table: curTable, partition: curPart || curTable, kind: curKind || "m", body: b2.body });
+        i = b2.next; continue;
+      }
+      i++;
+    }
+    return out;
+  }
+
+  // ---- 2. M helpers ----------------------------------------------------------
+  function decodeEscapes(s) {
+    return s.replace(/#\(([^)]*)\)/g, function (whole, body) {
+      var parts = body.split(","), out = "";
+      for (var k = 0; k < parts.length; k++) {
+        var p = parts[k].trim().toLowerCase();
+        if (p === "lf") out += "\n"; else if (p === "cr") out += "\r"; else if (p === "tab") out += "\t"; else if (p === "#") out += "#";
+        else if (/^[0-9a-f]{4}$|^[0-9a-f]{8}$/.test(p)) out += String.fromCodePoint(parseInt(p, 16));
+        else return whole;
+      }
+      return out;
+    });
+  }
+
+  function mSegments(m) {
+    var res = [], i = 0, n = m.length, buf = "";
+    function flush() { if (buf) { res.push({ k: "code", v: buf }); buf = ""; } }
+    while (i < n) {
+      var c = m.charAt(i), c2 = m.substr(i, 2);
+      if (c2 === "//") { var e = m.indexOf("\n", i); i = e < 0 ? n : e; continue; }
+      if (c2 === "/*") { var e2 = m.indexOf("*/", i + 2); i = e2 < 0 ? n : e2 + 2; continue; }
+      if (c2 === '#"') { // quoted identifier #"name"
+        var q = i + 2; while (q < n) { if (m.charAt(q) === '"') { if (m.charAt(q + 1) === '"') { q += 2; continue; } break; } q++; }
+        buf += m.slice(i, q + 1); i = q + 1; continue;
+      }
+      if (c === '"') {
+        var j = i + 1, s = "";
+        while (j < n) { if (m.charAt(j) === '"') { if (m.charAt(j + 1) === '"') { s += '"'; j += 2; continue; } break; } s += m.charAt(j); j++; }
+        flush(); res.push({ k: "str", v: s }); i = j + 1; continue;
+      }
+      buf += c; i++;
+    }
+    flush();
+    return res;
+  }
+
+  function paramName(expr) {
+    expr = expr.trim();
+    var m = expr.match(/^#"((?:[^"]|"")*)"$/);
+    return m ? m[1].replace(/""/g, '"') : expr;
+  }
+
+  // joins "a" & X & "b" chains into one string; X becomes its text value or {X}
+  function stringChains(m, params) {
+    var segs = mSegments(m), chains = [], cur = null;
+    function part(expr) {
+      var nm = paramName(expr);
+      if (params && Object.prototype.hasOwnProperty.call(params, nm)) return params[nm];
+      return "{" + nm + "}";
+    }
+    for (var i = 0; i < segs.length; i++) {
+      var s = segs[i];
+      if (s.k === "str") { if (cur === null) cur = ""; cur += decodeEscapes(s.v); continue; }
+      if (cur === null) continue;
+      var mm;
+      if (/^\s*&\s*$/.test(s.v) && segs[i + 1] && segs[i + 1].k === "str") continue;
+      if ((mm = s.v.match(/^\s*&\s*([^&"]+?)\s*&\s*$/)) && segs[i + 1] && segs[i + 1].k === "str") { cur += part(mm[1]); continue; }
+      if ((mm = s.v.match(/^\s*&\s*([A-Za-z_][\w.]*|#"(?:[^"]|"")*")/))) cur += part(mm[1]);
+      chains.push(cur); cur = null;
+    }
+    if (cur !== null) chains.push(cur);
+    return chains;
+  }
+
+  function looksLikeSQL(s) { return /(^|[\s(])(select|with)\s/i.test(s) && /\bfrom\b/i.test(s); }
+
+  var CONN_RE = /\b(Oracle\.Database|Sql\.Databases?|Snowflake\.Databases|Odbc\.Query|Odbc\.DataSource|OleDb\.DataSource|PostgreSQL\.Database|MySQL\.Database|GoogleBigQuery\.Database|Databricks\.Catalogs|AmazonRedshift\.Database|Teradata\.Database|DB2\.Database|Sql\.Database|Lakehouse\.Contents|Fabric\.Warehouse|Sql\.Database)\s*\(\s*("(?:[^"]|"")*"|#"(?:[^"]|"")*"|[A-Za-z_][\w.]*)?/g;
+  function connections(m) {
+    var out = [], r; CONN_RE.lastIndex = 0;
+    while ((r = CONN_RE.exec(m)) !== null) {
+      var arg = r[2] || "";
+      if (/^"/.test(arg)) arg = arg.slice(1, -1).replace(/""/g, '"');
+      out.push(r[1] + (arg ? " · " + arg : ""));
+    }
+    return out;
+  }
+
+  function navObjects(m) {
+    var out = [], r;
+    var re1 = /\{\s*\[\s*Schema\s*=\s*"([^"]*)"\s*,\s*Item\s*=\s*"([^"]*)"\s*\]\s*\}/gi;
+    while ((r = re1.exec(m)) !== null) out.push(r[1] + "." + r[2]);
+    var re1b = /\{\s*\[\s*Item\s*=\s*"([^"]*)"\s*,\s*Schema\s*=\s*"([^"]*)"\s*\]\s*\}/gi;
+    while ((r = re1b.exec(m)) !== null) out.push(r[2] + "." + r[1]);
+    var re2 = /\{\s*\[\s*Name\s*=\s*"([^"]*)"\s*,\s*Kind\s*=\s*"(\w+)"\s*\]\s*\}/gi, db = "", sch = "";
+    while ((r = re2.exec(m)) !== null) {
+      var k = r[2].toLowerCase();
+      if (k === "database") { db = r[1]; sch = ""; }
+      else if (k === "schema") sch = r[1];
+      else if (k === "table" || k === "view") out.push([db, sch, r[1]].filter(Boolean).join("."));
+    }
+    return out;
+  }
+
+  // ---- 3. SQL table extraction ---------------------------------------------
+  function sqlTokens(s) {
+    var out = [], i = 0, n = s.length;
+    while (i < n) {
+      var c = s.charAt(i), c2 = s.substr(i, 2);
+      if (/\s/.test(c)) { i++; continue; }
+      if (c2 === "--") { var e = s.indexOf("\n", i); i = e < 0 ? n : e; continue; }
+      if (c2 === "/*") { var e2 = s.indexOf("*/", i + 2); i = e2 < 0 ? n : e2 + 2; continue; }
+      if (c === "'") { var j = i + 1; while (j < n) { if (s.charAt(j) === "'") { if (s.charAt(j + 1) === "'") { j += 2; continue; } break; } j++; } out.push({ t: "str", v: s.slice(i, j + 1) }); i = j + 1; continue; }
+      if (c === '"') { var q = s.indexOf('"', i + 1); q = q < 0 ? n : q; out.push({ t: "id", v: s.slice(i, q + 1) }); i = q + 1; continue; }
+      if (c === "[") { var b = s.indexOf("]", i + 1); b = b < 0 ? n : b; out.push({ t: "id", v: s.slice(i, b + 1) }); i = b + 1; continue; }
+      if (c === "`") { var bt = s.indexOf("`", i + 1); bt = bt < 0 ? n : bt; out.push({ t: "id", v: s.slice(i, bt + 1) }); i = bt + 1; continue; }
+      if (c === "{") { var cb = s.indexOf("}", i + 1); cb = cb < 0 ? n : cb; out.push({ t: "id", v: s.slice(i, cb + 1) }); i = cb + 1; continue; }
+      var w = s.slice(i).match(/^[A-Za-z_$#][\w$#]*/);
+      if (w) { out.push({ t: "w", v: w[0], l: w[0].toLowerCase() }); i += w[0].length; continue; }
+      var num = s.slice(i).match(/^\d+(\.\d+)?/);
+      if (num) { out.push({ t: "num", v: num[0] }); i += num[0].length; continue; }
+      if (c === ":" && /[A-Za-z_]/.test(s.charAt(i + 1))) { var bv = s.slice(i).match(/^:[\w]+/); out.push({ t: "bind", v: bv[0] }); i += bv[0].length; continue; }
+      out.push({ t: "p", v: c }); i++;
+    }
+    return out;
+  }
+
+  var STOP = {}; ("where join left right inner outer full cross natural on using group order having union minus except intersect connect start fetch limit offset pivot unpivot model for window qualify sample partition subpartition select set values lateral table when then else end and or with as into returning log only tablesample match_recognize") .split(" ").forEach(function (k) { STOP[k] = 1; });
+  var SKIP_FN = { extract: 1, trim: 1, substring: 1, overlay: 1, position: 1 };
+  function isNameTok(t) { return t && ((t.t === "w" && !STOP[t.l]) || t.t === "id"); }
+  function cleanPart(v) { return v.replace(/^"(.*)"$/, "$1").replace(/^\[(.*)\]$/, "$1").replace(/^`(.*)`$/, "$1"); }
+
+  function readName(toks, j) {
+    var parts = [cleanPart(toks[j].v)]; j++;
+    while (toks[j] && toks[j].v === "." && toks[j + 1] && (toks[j + 1].t === "w" || toks[j + 1].t === "id")) { parts.push(cleanPart(toks[j + 1].v)); j += 2; }
+    var name = parts.join(".");
+    if (toks[j] && toks[j].v === "@" && toks[j + 1] && toks[j + 1].t === "w") {
+      name += "@" + toks[j + 1].v; j += 2;
+      while (toks[j] && toks[j].v === "." && toks[j + 1] && toks[j + 1].t === "w") { name += "." + toks[j + 1].v; j += 2; }
+    }
+    return { name: name, next: j };
+  }
+  function skipParens(toks, j) { var d = 0; for (; j < toks.length; j++) { if (toks[j].v === "(") d++; else if (toks[j].v === ")") { d--; if (d === 0) return j + 1; } } return j; }
+
+  function extractTables(sql) {
+    var toks = sqlTokens(sql), ctes = {}, found = [], k;
+    // CTE names
+    for (k = 1; k < toks.length; k++) {
+      var p = toks[k - 1], t = toks[k];
+      if (!(t.t === "w" || t.t === "id")) continue;
+      if (!(p.v === "," || p.l === "with" || p.l === "recursive")) continue;
+      var n = k + 1;
+      if (toks[n] && toks[n].v === "(") n = skipParens(toks, n);
+      if (toks[n] && toks[n].l === "as") {
+        n++;
+        if (toks[n] && toks[n].l === "not") n++;
+        if (toks[n] && toks[n].l === "materialized") n++;
+        if (toks[n] && toks[n].v === "(") ctes[cleanPart(t.v).toLowerCase()] = 1;
+      }
+    }
+    function add(name) {
+      if (name.indexOf(".") < 0 && name.indexOf("@") < 0 && ctes[name.toLowerCase()]) return;
+      found.push(name);
+    }
+    function parseList(j, list, intoMode) {
+      while (j < toks.length) {
+        var t = toks[j];
+        if (!t || t.v === "(") return;
+        if (t.l === "lateral" || t.l === "only") { j++; continue; }
+        if (!isNameTok(t)) return;
+        var r = readName(toks, j);
+        // name directly followed by "(" is a function / table function (JSON_TABLE, TABLE, UNNEST ...), not a table
+        if (!intoMode && toks[r.next] && toks[r.next].v === "(") return;
+        add(r.name); j = r.next;
+        // clauses right after the table
+        while (toks[j] && (toks[j].l === "partition" || toks[j].l === "subpartition" || toks[j].l === "sample" || toks[j].l === "tablesample") ) {
+          j++; if (toks[j] && toks[j].l === "block") j++; if (toks[j] && toks[j].v === "(") j = skipParens(toks, j);
+        }
+        if (toks[j] && toks[j].l === "as") j++;
+        if (isNameTok(toks[j])) j++;
+        if (list && toks[j] && toks[j].v === ",") { j++; continue; }
+        return;
+      }
+    }
+    var stack = [];
+    for (k = 0; k < toks.length; k++) {
+      var tk = toks[k], prev = toks[k - 1];
+      if (tk.v === "(") { stack.push(prev && prev.t === "w" ? prev.l : ""); continue; }
+      if (tk.v === ")") { stack.pop(); continue; }
+      if (tk.t !== "w") continue;
+      if (tk.l === "from") {
+        if (SKIP_FN[stack[stack.length - 1]]) continue;
+        if (prev && prev.l === "distinct") continue;
+        parseList(k + 1, true, false);
+      } else if (tk.l === "join") {
+        parseList(k + 1, false, false);
+      } else if (tk.l === "into" && prev && (prev.l === "insert" || prev.l === "merge")) {
+        parseList(k + 1, false, true);
+      } else if (tk.l === "using" && toks[k + 1] && toks[k + 1].v !== "(") {
+        parseList(k + 1, false, false);
+      }
+    }
+    return { tables: found, ctes: Object.keys(ctes) };
+  }
+
+  // ---- 4. run ---------------------------------------------------------------
+  function run() {
+    var raw = inEl.value, upper = $("optUpper").checked, hideDual = $("optDual").checked, useNav = $("optNav").checked, useParam = $("optParam").checked;
+    var sources = parseTMDL(raw), pasted = false;
+    // no table partitions found (e.g. only expressions, or not TMDL at all): scan the whole text instead
+    var hasTableSource = sources.some(function (s) { return s.kind !== "expression"; });
+    if (!hasTableSource && raw.trim()) {
+      sources = sources.concat([{ table: "(pasted text)", partition: "(pasted text)", kind: "m", body: raw }]);
+      pasted = true;
+    }
+
+    // text parameters: expression X = "value" meta [...]
+    var params = {};
+    sources.forEach(function (s) {
+      if (s.kind !== "expression") return;
+      var m = s.body.trim().match(/^"((?:[^"]|"")*)"(\s+meta\s*\[[\s\S]*\])?\s*$/);
+      if (m) params[s.table] = m[1].replace(/""/g, '"');
+    });
+
+    var objMap = {}, parts = [], cteCount = 0, sqlCount = 0, noSql = 0;
+    function norm(n) { return upper ? n.toUpperCase() : n; }
+
+    sources.forEach(function (s) {
+      var part = { table: s.table, partition: s.partition, kind: s.kind, conns: [], sql: [], objs: [], ctes: [] };
+      parts.push(part);
+      if (s.kind === "calculated" || s.kind === "entity" || s.kind === "calculationgroup") return;
+      if (s.kind === "expression" && Object.prototype.hasOwnProperty.call(params, s.table)) { part.kind = "parameter"; return; }
+      part.conns = connections(s.body);
+      var chains = stringChains(s.body, useParam ? params : null).filter(looksLikeSQL);
+      if (!chains.length && looksLikeSQL(s.body) && !/\blet\b/.test(s.body)) chains = [s.body];
+      var seen = {};
+      function rec(name, via) {
+        if (hideDual && /^(sys\.)?dual$/i.test(name)) return;
+        var key = norm(name);
+        if (!objMap[key]) objMap[key] = { name: key, refs: 0, tables: {}, via: {} };
+        objMap[key].refs++; objMap[key].tables[s.table] = 1; objMap[key].via[via] = 1;
+        if (!seen[key]) { seen[key] = 1; part.objs.push({ name: key, via: via }); }
+      }
+      chains.forEach(function (sql) {
+        var r = extractTables(sql);
+        part.sql.push({ text: sql, names: r.tables });
+        r.tables.forEach(function (n) { rec(n, "sql"); });
+        part.ctes = part.ctes.concat(r.ctes); cteCount += r.ctes.length;
+      });
+      if (chains.length) sqlCount++;
+      if (useNav) navObjects(s.body).forEach(function (n) { rec(n, "nav"); });
+      if (!part.objs.length && s.kind !== "expression") noSql++;
+    });
+
+    state.objects = Object.keys(objMap).sort().map(function (k) { return objMap[k]; });
+    state.parts = parts;
+
+    var modelTables = {}; parts.forEach(function (p) { if (p.kind !== "expression" && p.kind !== "parameter") modelTables[p.table] = 1; });
+    $("strip").innerHTML = !raw.trim() ? "" :
+      chip(pasted ? "read as" : "model tables", pasted ? "plain text" : Object.keys(modelTables).length, "on") +
+      chip("partitions / expressions", parts.length) +
+      chip("with SQL", sqlCount) +
+      chip("unique source objects", state.objects.length, "on") +
+      (cteCount ? chip("CTEs skipped", cteCount) : "") +
+      (Object.keys(params).length ? chip("text parameters", Object.keys(params).length) : "") +
+      (noSql ? chip("no source found", noSql, "warn") : "");
+    $("inmeta").textContent = raw ? raw.split("\n").length.toLocaleString() + " lines" : "";
+    render();
+  }
+  function chip(label, value, cls) { return '<span class="chip' + (cls ? " " + cls : "") + '">' + esc(label) + " <b>" + esc(value) + "</b></span>"; }
+
+  function splitName(n) {
+    var at = n.indexOf("@"), base = at < 0 ? n : n.slice(0, at), link = at < 0 ? "" : n.slice(at);
+    var i = base.lastIndexOf(".");
+    return i < 0 ? { schema: "", obj: base + link } : { schema: base.slice(0, i), obj: base.slice(i + 1) + link };
+  }
+  function viaTags(via) {
+    return (via.sql ? '<span class="via sql">SQL</span> ' : "") + (via.nav ? '<span class="via nav">M nav</span>' : "");
+  }
+
+  function render() {
+    var f = $("filter").value.trim().toLowerCase(), html = "", count = 0;
+    if (state.group === "obj") {
+      var rows = state.objects.filter(function (o) { return !f || o.name.toLowerCase().indexOf(f) >= 0 || Object.keys(o.tables).join(" ").toLowerCase().indexOf(f) >= 0; });
+      count = rows.length;
+      if (rows.length) {
+        html = '<table><thead><tr><th>Source object</th><th>Via</th><th>Used by model table</th><th class="n">Refs</th></tr></thead><tbody>' +
+          rows.map(function (o) {
+            var sp = splitName(o.name);
+            return '<tr><td class="obj">' + (sp.schema ? '<span class="sch">' + esc(sp.schema) + ".</span>" : "") + esc(sp.obj) + "</td><td>" + viaTags(o.via) +
+              '</td><td><div class="tags">' + Object.keys(o.tables).map(function (t) { return '<span class="tag">' + esc(t) + "</span>"; }).join("") +
+              '</div></td><td class="n">' + o.refs + "</td></tr>";
+          }).join("") + "</tbody></table>";
+      }
+      $("outmeta").textContent = count + " object" + (count === 1 ? "" : "s");
+    } else {
+      var ps = state.parts.filter(function (p) { return p.kind !== "parameter" && (p.objs.length || p.kind === "m" || p.kind === "expression"); })
+        .filter(function (p) { return !f || p.table.toLowerCase().indexOf(f) >= 0 || p.objs.some(function (o) { return o.name.toLowerCase().indexOf(f) >= 0; }); });
+      count = ps.length;
+      if (ps.length) {
+        html = '<table><thead><tr><th>Model table</th><th>Connection</th><th>Source objects</th></tr></thead><tbody>' +
+          ps.map(function (p) {
+            return "<tr><td><b>" + esc(p.table) + "</b>" + (p.kind === "expression" ? ' <span class="pkind">expression</span>' : "") +
+              '</td><td class="conn">' + (p.conns.map(esc).join("<br>") || "—") +
+              '</td><td><div class="tags">' + (p.objs.map(function (o) { return '<span class="tag mono">' + esc(o.name) + "</span>"; }).join("") || '<span class="pkind">none found</span>') + "</div></td></tr>";
+          }).join("") + "</tbody></table>";
+      }
+      $("outmeta").textContent = count + " table" + (count === 1 ? "" : "s");
+    }
+    if (!html) html = '<div class="empty">' + (inEl.value.trim() ? "Nothing matches." : "Paste TMDL on the left.") + "</div>";
+    $("results").innerHTML = html;
+    renderParts();
+  }
+
+  function highlightSQL(sql, names) {
+    var kw = /\b(select|from|where|group\s+by|order\s+by|having|left\s+join|right\s+join|inner\s+join|full\s+join|cross\s+join|join|on|and|or|not|in|exists|as|with|union\s+all|union|case|when|then|else|end|distinct|over|partition\s+by)\b/gi;
+    var toks = [], i = 0, n = sql.length, buf = "";
+    function flush() { if (buf) { toks.push({ k: "c", v: buf }); buf = ""; } }
+    while (i < n) {
+      var c = sql.charAt(i), c2 = sql.substr(i, 2);
+      if (c2 === "--") { var e = sql.indexOf("\n", i); e = e < 0 ? n : e; flush(); toks.push({ k: "com", v: sql.slice(i, e) }); i = e; continue; }
+      if (c2 === "/*") { var e2 = sql.indexOf("*/", i + 2); e2 = e2 < 0 ? n : e2 + 2; flush(); toks.push({ k: "com", v: sql.slice(i, e2) }); i = e2; continue; }
+      if (c === "'") { var j = i + 1; while (j < n) { if (sql.charAt(j) === "'") { if (sql.charAt(j + 1) === "'") { j += 2; continue; } break; } j++; } j = Math.min(j + 1, n); flush(); toks.push({ k: "str", v: sql.slice(i, j) }); i = j; continue; }
+      buf += c; i++;
+    }
+    flush();
+    var uniq = {}; names.forEach(function (x) { uniq[x] = 1; });
+    var nameRe = Object.keys(uniq).sort(function (a, b) { return b.length - a.length; })
+      .map(function (x) { return x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\./g, '"?\\s*\\.\\s*"?'); });
+    var hitRe = nameRe.length ? new RegExp("(^|[^\\w$#.@])(\"?(?:" + nameRe.join("|") + ")\"?)(?![\\w$#])", "gi") : null;
+    return toks.map(function (t) {
+      if (t.k === "com") return '<span class="com">' + esc(t.v) + "</span>";
+      if (t.k === "str") return '<span class="str">' + esc(t.v) + "</span>";
+      var s = t.v, out = "", last = 0, m;
+      if (hitRe) {
+        hitRe.lastIndex = 0;
+        while ((m = hitRe.exec(s)) !== null) {
+          var st = m.index + m[1].length;
+          out += esc(s.slice(last, st)).replace(kw, '<span class="kw">$1</span>') + '<span class="hit">' + esc(m[2]) + "</span>";
+          last = st + m[2].length; hitRe.lastIndex = last;
+        }
+      }
+      return out + esc(s.slice(last)).replace(kw, '<span class="kw">$1</span>');
+    }).join("");
+  }
+
+  function renderParts() {
+    var ps = state.parts;
+    $("pmeta").textContent = ps.length ? ps.length + " sources" : "";
+    if (!ps.length) { $("parts").innerHTML = '<div class="empty">Each partition and expression appears here with its connection and decoded SQL.</div>'; return; }
+    $("parts").innerHTML = ps.map(function (p) {
+      var label = p.kind === "expression" || p.kind === "parameter" ? p.table : (p.partition === p.table ? p.table : p.table + " · " + p.partition);
+      var body = "";
+      if (p.kind === "calculated") body = '<span class="note">Calculated partition (DAX). No external source.</span>';
+      else if (p.kind === "parameter") body = '<span class="note">Text parameter. Its value is substituted into SQL strings when "Resolve text parameters" is on.</span>';
+      else {
+        if (p.conns.length) body += '<div><div class="lbl">Connection</div><div class="conn">' + p.conns.map(esc).join("<br>") + "</div></div>";
+        if (p.objs.length) body += '<div><div class="lbl">Objects</div><div class="tags">' + p.objs.map(function (o) { return '<span class="tag mono">' + esc(o.name) + "</span>"; }).join("") + "</div></div>";
+        if (p.ctes.length) body += '<div><div class="lbl">CTEs skipped</div><div class="tags">' + p.ctes.map(function (c) { return '<span class="tag">' + esc(c) + "</span>"; }).join("") + "</div></div>";
+        p.sql.forEach(function (s, i) { body += '<div><div class="lbl">Decoded SQL' + (p.sql.length > 1 ? " " + (i + 1) : "") + "</div><pre>" + highlightSQL(s.text, s.names) + "</pre></div>"; });
+        if (!p.sql.length && !p.objs.length) body += '<span class="note">No SQL string or navigation step found. This source probably references another query or uses a connector this tool does not read.</span>';
+      }
+      return '<details class="part"><summary><span class="pname">' + esc(label) + '</span><span class="pkind">' + esc(p.kind) + "</span>" +
+        (p.conns[0] ? '<span class="conn">' + esc(p.conns[0]) + "</span>" : "") +
+        '<span class="pcount">' + p.objs.length + " object" + (p.objs.length === 1 ? "" : "s") + '</span></summary><div class="pbody">' + body + "</div></details>";
+    }).join("");
+  }
+
+  function copy(text, btn) {
+    var old = btn.textContent;
+    function done(msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = old; }, 1500); }
+    try {
+      navigator.clipboard.writeText(text).then(function () { done("Copied"); }, function () { fallback(); });
+    } catch (e) { fallback(); }
+    function fallback() {
+      var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta); done(ok ? "Copied" : "Press Ctrl+C");
+    }
+  }
+
+  $("run").addEventListener("click", run);
+  $("clear").addEventListener("click", function () { inEl.value = ""; run(); inEl.focus(); });
+  ["optUpper", "optDual", "optNav", "optParam"].forEach(function (id) { $(id).addEventListener("change", run); });
+  $("filter").addEventListener("input", render);
+  $("gObj").addEventListener("click", function () { state.group = "obj"; this.setAttribute("aria-pressed", "true"); $("gTbl").setAttribute("aria-pressed", "false"); render(); });
+  $("gTbl").addEventListener("click", function () { state.group = "tbl"; this.setAttribute("aria-pressed", "true"); $("gObj").setAttribute("aria-pressed", "false"); render(); });
+  $("copyList").addEventListener("click", function () { if (state.objects.length) copy(state.objects.map(function (o) { return o.name; }).join("\n"), this); });
+  $("copyTsv").addEventListener("click", function () {
+    if (!state.objects.length) return;
+    var lines = ["Object\tSchema\tName\tVia\tUsed by model table\tRefs"];
+    state.objects.forEach(function (o) {
+      var sp = splitName(o.name);
+      lines.push([o.name, sp.schema, sp.obj, Object.keys(o.via).map(function (v) { return v === "sql" ? "SQL" : "M nav"; }).join(", "), Object.keys(o.tables).join(", "), o.refs].join("\t"));
+    });
+    copy(lines.join("\n"), this);
+  });
+  inEl.addEventListener("input", function () { clearTimeout(inEl._t); inEl._t = setTimeout(run, 300); });
+  inEl.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); run(); }  });
+
+  inEl.value = "";
+  run();
+})();
+</script>
+</body>
+</html>

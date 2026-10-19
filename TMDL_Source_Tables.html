@@ -92,6 +92,7 @@
   .via { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
   .via.sql { background: var(--accent-soft); color: var(--accent); }
   .via.nav { background: var(--plum-soft); color: var(--plum); }
+  .via.dax { background: var(--amber-soft); color: var(--amber); }
   .empty { padding: 28px 14px; color: var(--ink-3); text-align: center; }
 
   .strip { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -127,7 +128,7 @@
 <div class="wrap">
   <header>
     <h1><span class="m">TMDL</span> Source Tables</h1>
-    <p>Paste one or more <code>.tmdl</code> files. Every partition and expression source is read, the SQL inside the M string is decoded, and each table or view after <code>FROM</code>, <code>JOIN</code> or a comma list is collected. M navigation steps like <code>{[Schema=…,Item=…]}</code> are picked up too.</p>
+    <p>Paste one or more <code>.tmdl</code> files. Every partition and expression source is read, the SQL inside the M string is decoded, and each table or view after <code>FROM</code>, <code>JOIN</code> or a comma list is collected. For Analysis Services sources (<code>AnalysisServices.Database</code> with a DAX <code>EVALUATE</code> query) the model tables used by the DAX are collected. M navigation steps like <code>{[Schema=…,Item=…]}</code> are picked up too.</p>
   </header>
 
   <div class="bar">
@@ -168,7 +169,7 @@
     <div class="parts" id="parts"></div>
   </section>
 
-  <p class="note">Detection is lexical, not a full SQL parse. CTE names, subqueries, <code>TABLE(…)</code> / <code>JSON_TABLE(…)</code> style functions and the <code>FROM</code> inside <code>EXTRACT</code> / <code>TRIM</code> / <code>SUBSTRING</code> are skipped. Dynamic SQL that concatenates a non-text parameter shows as <code>{Param}</code> in the name. Nothing leaves your browser.</p>
+  <p class="note">Detection is lexical, not a full SQL parse. CTE names, subqueries, <code>TABLE(…)</code> / <code>JSON_TABLE(…)</code> style functions and the <code>FROM</code> inside <code>EXTRACT</code> / <code>TRIM</code> / <code>SUBSTRING</code> are skipped. Dynamic SQL that concatenates a non-text parameter shows as <code>{Param}</code> in the name. DAX detection is lexical too: it finds <code>'Table'[Column]</code>, <code>Table[Column]</code> and tables passed as the first argument of functions such as <code>FILTER</code> or <code>VALUES</code>; DAX variables and measure references are ignored, and a DAX table is shown as <code>SourceModel.Table</code>. Nothing leaves your browser.</p>
 </div>
 
 <script>
@@ -297,13 +298,28 @@
 
   function looksLikeSQL(s) { return /(^|[\s(])(select|with)\s/i.test(s) && /\bfrom\b/i.test(s); }
 
-  var CONN_RE = /\b(Oracle\.Database|Sql\.Databases?|Snowflake\.Databases|Odbc\.Query|Odbc\.DataSource|OleDb\.DataSource|PostgreSQL\.Database|MySQL\.Database|GoogleBigQuery\.Database|Databricks\.Catalogs|AmazonRedshift\.Database|Teradata\.Database|DB2\.Database|Sql\.Database|Lakehouse\.Contents|Fabric\.Warehouse|Sql\.Database)\s*\(\s*("(?:[^"]|"")*"|#"(?:[^"]|"")*"|[A-Za-z_][\w.]*)?/g;
-  function connections(m) {
+  var CONN_RE = /\b(Oracle\.Database|Sql\.Databases?|Snowflake\.Databases|Odbc\.Query|Odbc\.DataSource|OleDb\.DataSource|PostgreSQL\.Database|MySQL\.Database|GoogleBigQuery\.Database|Databricks\.Catalogs|AmazonRedshift\.Database|Teradata\.Database|DB2\.Database|Lakehouse\.Contents|Fabric\.Warehouse|AnalysisServices\.Databases?)\s*\(\s*("(?:[^"]|"")*"|#"(?:[^"]|"")*"|[A-Za-z_][\w.]*)?/g;
+  var ARG = '("(?:[^"]|"")*"|#"(?:[^"]|"")*"|[A-Za-z_][\\w.]*)';
+  function argValue(a, params) {
+    if (!a) return "";
+    if (/^"/.test(a)) return a.slice(1, -1).replace(/""/g, '"');
+    var nm = paramName(a);
+    return params && Object.prototype.hasOwnProperty.call(params, nm) ? params[nm] : a;
+  }
+  // first AnalysisServices.Database(server, database, ...) call: returns { server, db } or null
+  function aasInfo(m, params) {
+    var r = new RegExp("AnalysisServices\\.Databases?\\s*\\(\\s*" + ARG + "(?:\\s*,\\s*" + ARG + ")?").exec(m);
+    return r ? { server: argValue(r[1], params), db: argValue(r[2], params) } : null;
+  }
+  function connections(m, params) {
     var out = [], r; CONN_RE.lastIndex = 0;
     while ((r = CONN_RE.exec(m)) !== null) {
-      var arg = r[2] || "";
-      if (/^"/.test(arg)) arg = arg.slice(1, -1).replace(/""/g, '"');
-      out.push(r[1] + (arg ? " · " + arg : ""));
+      var label = r[1], arg = argValue(r[2], params);
+      if (/^AnalysisServices/.test(r[1])) {
+        var a = aasInfo(m.slice(r.index), params);
+        arg = a ? (a.server + (a.db ? " / " + a.db : "")) : arg;
+      }
+      out.push(label + (arg ? " · " + arg : ""));
     }
     return out;
   }
@@ -425,6 +441,47 @@
     return { tables: found, ctes: Object.keys(ctes) };
   }
 
+  // ---- 3b. DAX table extraction (Analysis Services: EVALUATE queries) -------------
+  function looksLikeDAX(s) { return /(^|\s)EVALUATE\b/i.test(s); }
+  var DAX_FN = "filter|all|allnoblankrow|allexcept|allselected|values|distinct|selectcolumns|addcolumns|summarize|calculatetable|countrows|generate|generateall|crossjoin|union|except|intersect|groupby|removefilters|keepfilters";
+  var DAX_WORDS = {}; "by return in not var evaluate define order start at true false and or asc desc measure column table function".split(" ").forEach(function (k) { DAX_WORDS[k] = 1; });
+
+  // removes comments and string literals; keeps 'Quoted Table' names and [Column] references intact
+  function stripDax(s) {
+    var out = "", i = 0, n = s.length;
+    while (i < n) {
+      var c = s.charAt(i), c2 = s.substr(i, 2);
+      if (c2 === "--" || c2 === "//") { var e = s.indexOf("\n", i); i = e < 0 ? n : e; continue; }
+      if (c2 === "/*") { var e2 = s.indexOf("*/", i + 2); i = e2 < 0 ? n : e2 + 2; out += " "; continue; }
+      if (c === '"') { var j = i + 1; while (j < n) { if (s.charAt(j) === '"') { if (s.charAt(j + 1) === '"') { j += 2; continue; } break; } j++; } out += '""'; i = j + 1; continue; }
+      if (c === "'") { var k = i + 1; while (k < n) { if (s.charAt(k) === "'") { if (s.charAt(k + 1) === "'") { k += 2; continue; } break; } k++; } out += s.slice(i, k + 1); i = k + 1; continue; }
+      if (c === "[") { var b = s.indexOf("]", i + 1); b = b < 0 ? n : b; out += s.slice(i, b + 1); i = b + 1; continue; }
+      out += c; i++;
+    }
+    return out;
+  }
+
+  function extractDax(dax) {
+    var s = stripDax(dax).replace(/\[[^\]]*\]/g, "[]"), found = [], seen = {}, vars = {}, m, re;
+    function add(name) { var k = name.toLowerCase(); if (!seen[k]) { seen[k] = 1; found.push(name); } }
+    function ok(w) { var k = w.toLowerCase(); return !vars[k] && !DAX_WORDS[k]; }
+    re = /\bVAR\s+([A-Za-z_]\w*)/gi;
+    while ((m = re.exec(s)) !== null) vars[m[1].toLowerCase()] = 1;
+    // 'Quoted Table' (with or without a column)
+    re = /'((?:[^']|'')+)'/g;
+    while ((m = re.exec(s)) !== null) add(m[1].replace(/''/g, "'"));
+    // Table[Column] without quotes
+    re = /(^|[^\w'.\]])([A-Za-z_]\w*)\[/g;
+    while ((m = re.exec(s)) !== null) { if (ok(m[2])) add(m[2]); re.lastIndex = m.index + m[0].length - 1; }
+    // table as the first argument: FILTER( Customer, ... ), VALUES( Sales )
+    re = new RegExp("\\b(?:" + DAX_FN + ")\\s*\\(\\s*([A-Za-z_]\\w*)\\s*[,)]", "gi");
+    while ((m = re.exec(s)) !== null) { if (ok(m[1])) add(m[1]); }
+    // EVALUATE Table
+    re = /\bEVALUATE\s+([A-Za-z_]\w*)(?!\w)(?!\s*\()/gi;
+    while ((m = re.exec(s)) !== null) { if (ok(m[1])) add(m[1]); }
+    return { tables: found };
+  }
+
   // ---- 4. run ---------------------------------------------------------------
   function run() {
     var raw = inEl.value, upper = $("optUpper").checked, hideDual = $("optDual").checked, useNav = $("optNav").checked, useParam = $("optParam").checked;
@@ -452,9 +509,12 @@
       parts.push(part);
       if (s.kind === "calculated" || s.kind === "entity" || s.kind === "calculationgroup") return;
       if (s.kind === "expression" && Object.prototype.hasOwnProperty.call(params, s.table)) { part.kind = "parameter"; return; }
-      part.conns = connections(s.body);
-      var chains = stringChains(s.body, useParam ? params : null).filter(looksLikeSQL);
-      if (!chains.length && looksLikeSQL(s.body) && !/\blet\b/.test(s.body)) chains = [s.body];
+      var pr = useParam ? params : null;
+      part.conns = connections(s.body, pr);
+      var aas = aasInfo(s.body, pr);
+      function isQuery(x) { return looksLikeDAX(x) || looksLikeSQL(x); }
+      var chains = stringChains(s.body, pr).filter(isQuery);
+      if (!chains.length && isQuery(s.body) && !/\blet\b/.test(s.body)) chains = [s.body];
       var seen = {};
       function rec(name, via) {
         if (hideDual && /^(sys\.)?dual$/i.test(name)) return;
@@ -464,8 +524,14 @@
         if (!seen[key]) { seen[key] = 1; part.objs.push({ name: key, via: via }); }
       }
       chains.forEach(function (sql) {
+        if (looksLikeDAX(sql)) {
+          var d = extractDax(sql), prefix = aas && aas.db ? aas.db + "." : "";
+          part.sql.push({ text: sql, names: d.tables, lang: "dax" });
+          d.tables.forEach(function (n) { rec(prefix + n, "dax"); });
+          return;
+        }
         var r = extractTables(sql);
-        part.sql.push({ text: sql, names: r.tables });
+        part.sql.push({ text: sql, names: r.tables, lang: "sql" });
         r.tables.forEach(function (n) { rec(n, "sql"); });
         part.ctes = part.ctes.concat(r.ctes); cteCount += r.ctes.length;
       });
@@ -481,7 +547,7 @@
     $("strip").innerHTML = !raw.trim() ? "" :
       chip(pasted ? "read as" : "model tables", pasted ? "plain text" : Object.keys(modelTables).length, "on") +
       chip("partitions / expressions", parts.length) +
-      chip("with SQL", sqlCount) +
+      chip("with SQL / DAX", sqlCount) +
       chip("unique source objects", state.objects.length, "on") +
       (cteCount ? chip("CTEs skipped", cteCount) : "") +
       (Object.keys(params).length ? chip("text parameters", Object.keys(params).length) : "") +
@@ -497,7 +563,7 @@
     return i < 0 ? { schema: "", obj: base + link } : { schema: base.slice(0, i), obj: base.slice(i + 1) + link };
   }
   function viaTags(via) {
-    return (via.sql ? '<span class="via sql">SQL</span> ' : "") + (via.nav ? '<span class="via nav">M nav</span>' : "");
+    return (via.sql ? '<span class="via sql">SQL</span> ' : "") + (via.dax ? '<span class="via dax">DAX</span> ' : "") + (via.nav ? '<span class="via nav">M nav</span>' : "");
   }
 
   function render() {
@@ -566,6 +632,38 @@
     }).join("");
   }
 
+  function highlightDAX(dax, names) {
+    var kw = /\b(DEFINE|EVALUATE|VAR|RETURN|ORDER\s+BY|START\s+AT|MEASURE|COLUMN|TABLE|FUNCTION|ASC|DESC|IN|NOT)\b/gi;
+    var toks = [], i = 0, n = dax.length, buf = "";
+    function flush() { if (buf) { toks.push({ k: "c", v: buf }); buf = ""; } }
+    while (i < n) {
+      var c = dax.charAt(i), c2 = dax.substr(i, 2);
+      if (c2 === "--" || c2 === "//") { var e = dax.indexOf("\n", i); e = e < 0 ? n : e; flush(); toks.push({ k: "com", v: dax.slice(i, e) }); i = e; continue; }
+      if (c2 === "/*") { var e2 = dax.indexOf("*/", i + 2); e2 = e2 < 0 ? n : e2 + 2; flush(); toks.push({ k: "com", v: dax.slice(i, e2) }); i = e2; continue; }
+      if (c === '"') { var j = i + 1; while (j < n) { if (dax.charAt(j) === '"') { if (dax.charAt(j + 1) === '"') { j += 2; continue; } break; } j++; } j = Math.min(j + 1, n); flush(); toks.push({ k: "str", v: dax.slice(i, j) }); i = j; continue; }
+      buf += c; i++;
+    }
+    flush();
+    var uniq = {}; names.forEach(function (x) { uniq[x] = 1; });
+    var list = Object.keys(uniq).sort(function (a, b) { return b.length - a.length; });
+    function rx(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+    var hitRe = list.length ? new RegExp("(^|[^\\w'.\\[])('(?:" + list.map(function (x) { return rx(x.replace(/'/g, "''")); }).join("|") + ")'|(?:" + list.map(rx).join("|") + ")(?![\\w'(]))", "gi") : null;
+    return toks.map(function (t) {
+      if (t.k === "com") return '<span class="com">' + esc(t.v) + "</span>";
+      if (t.k === "str") return '<span class="str">' + esc(t.v) + "</span>";
+      var s = t.v, out = "", last = 0, m;
+      if (hitRe) {
+        hitRe.lastIndex = 0;
+        while ((m = hitRe.exec(s)) !== null) {
+          var st = m.index + m[1].length;
+          out += esc(s.slice(last, st)).replace(kw, '<span class="kw">$1</span>') + '<span class="hit">' + esc(m[2]) + "</span>";
+          last = st + m[2].length; hitRe.lastIndex = last;
+        }
+      }
+      return out + esc(s.slice(last)).replace(kw, '<span class="kw">$1</span>');
+    }).join("");
+  }
+
   function renderParts() {
     var ps = state.parts;
     $("pmeta").textContent = ps.length ? ps.length + " sources" : "";
@@ -579,8 +677,8 @@
         if (p.conns.length) body += '<div><div class="lbl">Connection</div><div class="conn">' + p.conns.map(esc).join("<br>") + "</div></div>";
         if (p.objs.length) body += '<div><div class="lbl">Objects</div><div class="tags">' + p.objs.map(function (o) { return '<span class="tag mono">' + esc(o.name) + "</span>"; }).join("") + "</div></div>";
         if (p.ctes.length) body += '<div><div class="lbl">CTEs skipped</div><div class="tags">' + p.ctes.map(function (c) { return '<span class="tag">' + esc(c) + "</span>"; }).join("") + "</div></div>";
-        p.sql.forEach(function (s, i) { body += '<div><div class="lbl">Decoded SQL' + (p.sql.length > 1 ? " " + (i + 1) : "") + "</div><pre>" + highlightSQL(s.text, s.names) + "</pre></div>"; });
-        if (!p.sql.length && !p.objs.length) body += '<span class="note">No SQL string or navigation step found. This source probably references another query or uses a connector this tool does not read.</span>';
+        p.sql.forEach(function (s, i) { var dax = s.lang === "dax"; body += '<div><div class="lbl">Decoded ' + (dax ? "DAX" : "SQL") + (p.sql.length > 1 ? " " + (i + 1) : "") + "</div><pre>" + (dax ? highlightDAX : highlightSQL)(s.text, s.names) + "</pre></div>"; });
+        if (!p.sql.length && !p.objs.length) body += '<span class="note">No SQL or DAX string and no navigation step found. This source probably references another query or uses a connector this tool does not read.</span>';
       }
       return '<details class="part"><summary><span class="pname">' + esc(label) + '</span><span class="pkind">' + esc(p.kind) + "</span>" +
         (p.conns[0] ? '<span class="conn">' + esc(p.conns[0]) + "</span>" : "") +
@@ -613,7 +711,7 @@
     var lines = ["Object\tSchema\tName\tVia\tUsed by model table\tRefs"];
     state.objects.forEach(function (o) {
       var sp = splitName(o.name);
-      lines.push([o.name, sp.schema, sp.obj, Object.keys(o.via).map(function (v) { return v === "sql" ? "SQL" : "M nav"; }).join(", "), Object.keys(o.tables).join(", "), o.refs].join("\t"));
+      lines.push([o.name, sp.schema, sp.obj, Object.keys(o.via).map(function (v) { return v === "sql" ? "SQL" : v === "dax" ? "DAX" : "M nav"; }).join(", "), Object.keys(o.tables).join(", "), o.refs].join("\t"));
     });
     copy(lines.join("\n"), this);
   });
